@@ -1,0 +1,9 @@
+.DS_Store
+.theos/
+packages/
+*.deb
+analyze/
+ipa_extract/
+*.ipa
+.env
+.env.*

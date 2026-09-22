@@ -1,0 +1,9 @@
+Package: repo.om2.cc.qqnews.tw
+Name: QQNewsTweak
+Depends: mobilesubstrate
+Version: 1.2.4
+Architecture: iphoneos-arm64
+Description: 腾讯新闻去广告 + TVK 鉴权修复（8.0.41）
+Maintainer: LuneWind
+Author: LuneWind
+Section: Tweaks
