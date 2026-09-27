@@ -1,1 +1,1 @@
-{ Filter = { Bundles = ( "com.tencent.info" ); }; }
+{ Filter = { Bundles = ( "com.tencent.info", "com.tencent.info1" ); }; }

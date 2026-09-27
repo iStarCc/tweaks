@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
-#import <objc/message.h>
+#import <dlfcn.h>
+#import <execinfo.h>
 
 @interface QNListItem : NSObject
 - (BOOL)isAdvertisement;
@@ -279,27 +280,15 @@ static BOOL isAdData(id data) {
 %end
 
 
-#import <UIKit/UIKit.h>
-#import <objc/runtime.h>
-#import <dlfcn.h>
-#import <execinfo.h>
+// ============================================================
+// MARK: - TVK 鉴权：GUID + Bundle + Keychain
+// ============================================================
 
-static NSString * const kTag = @"[QQNewsTVKFix]";
 static NSString * const kGUIDKey = @"repo.om2.cc.qqnews.tw.guid";
 static NSString * const kKCPrefix = @"repo.om2.cc.qqnews.tw.kc.";
 static NSString * const kOfficialBundleID = @"com.tencent.info";
 
 static BOOL gSpoofBundleForTVK = NO;
-static BOOL gVerboseLog = NO;
-
-static void TVKLog(NSString *fmt, ...) {
-    if (!gVerboseLog) return;
-    va_list args;
-    va_start(args, fmt);
-    NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
-    va_end(args);
-    NSLog(@"%@ %@", kTag, msg);
-}
 
 static BOOL TVKCallerMatches(const char *needle) {
     if (!needle) return NO;
@@ -325,7 +314,6 @@ static NSString *TVKForgeGUID(void) {
     }
     [ud setObject:guid forKey:kGUIDKey];
     [ud synchronize];
-    TVKLog(@"生成持久 GUID: %@", guid);
     return guid;
 }
 
@@ -363,9 +351,7 @@ static void TVKKeychainFallbackSave(NSString *key, id value) {
     @try {
         [NSUserDefaults.standardUserDefaults setObject:value
                                                 forKey:[kKCPrefix stringByAppendingString:key]];
-    } @catch (NSException *e) {
-        TVKLog(@"KeychainFallbackSave 跳过 key=%@ err=%@", key, e);
-    }
+    } @catch (__unused NSException *e) {}
 }
 
 #pragma mark - Bundle ID 欺骗 (仅 TVK 鉴权栈)
@@ -380,9 +366,12 @@ static void TVKKeychainFallbackSave(NSString *key, id value) {
         TVKCallerMatches("TVKVcSystemInfo") ||
         TVKCallerMatches("QNTVKPlayer") ||
         TVKCallerMatches("TVKCGI") ||
-        TVKCallerMatches("TVKBatchVinfo")) {
+        TVKCallerMatches("TVKBatchVinfo") ||
+        TVKCallerMatches("TVKVinfo") ||
+        TVKCallerMatches("Vinfo") ||
+        TVKCallerMatches("ThumbPlayer") ||
+        TVKCallerMatches("TVKPlay")) {
         if (![bid isEqualToString:kOfficialBundleID]) {
-            TVKLog(@"Bundle 欺骗 %@ → %@ (caller TVK)", bid, kOfficialBundleID);
             return kOfficialBundleID;
         }
     }
@@ -398,17 +387,13 @@ static void TVKKeychainFallbackSave(NSString *key, id value) {
 - (NSString *)getGUIDFromKeychain {
     NSString *guid = %orig;
     if (guid.length) return guid;
-    guid = TVKForgeGUID();
-    TVKLog(@"getGUIDFromKeychain 空 → 注入 %@", guid);
-    return guid;
+    return TVKForgeGUID();
 }
 
 - (NSString *)localGuid {
     NSString *guid = %orig;
     if (guid.length) return guid;
-    guid = TVKForgeGUID();
-    TVKLog(@"localGuid 空 → 注入 %@", guid);
-    return guid;
+    return TVKForgeGUID();
 }
 
 - (void)updateLocalGuid:(NSString *)guid {
@@ -492,13 +477,11 @@ static void TVKKeychainFallbackSave(NSString *key, id value) {
     @try {
         [(id)self setValue:@(1) forKey:@"authStatus"];
     } @catch (__unused NSException *e) {}
-    TVKLog(@"updateAuthStatusWithAppKey 完成 (已强制 authStatus=1)");
 }
 
 - (id)authStatusWithInfo:(id)info {
     id result = %orig;
     if (!result) {
-        TVKLog(@"authStatusWithInfo 返回空，伪造有效状态");
         return @{@"status": @1, @"valid": @YES};
     }
     return result;
@@ -521,101 +504,21 @@ static void TVKRefreshAuth(void) {
         if (!appKey.length) {
             @try { appKey = [params valueForKey:@"_appKey"]; } @catch (__unused NSException *e) {}
         }
-        if (!appKey.length) {
-            TVKLog(@"TVKRefreshAuth: 未找到 appKey");
-            return;
-        }
+        if (!appKey.length) return;
 
         id auth = [[authCls alloc] init];
         [auth performSelector:@selector(updateAuthStatusWithAppKey:) withObject:appKey];
-        TVKLog(@"TVKRefreshAuth 完成 appKey.len=%lu", (unsigned long)appKey.length);
-    } @catch (NSException *e) {
-        TVKLog(@"TVKRefreshAuth 异常: %@", e);
-    }
+    } @catch (__unused NSException *e) {}
     gSpoofBundleForTVK = NO;
-}
-
-static uint64_t gCarePlaybackEpoch = 0;
-
-static id TVKResolveMediaPlayer(id tvkPlayer) {
-    if (!tvkPlayer) return nil;
-    if ([tvkPlayer isKindOfClass:NSClassFromString(@"QNTVKMediaPlayer")]) return tvkPlayer;
-    for (NSString *key in @[ @"player", @"mediaPlayer", @"_player", @"_mediaPlayer", @"tvkPlayer" ]) {
-        @try {
-            id inner = [tvkPlayer valueForKey:key];
-            if ([inner isKindOfClass:NSClassFromString(@"QNTVKMediaPlayer")]) return inner;
-            if ([inner respondsToSelector:@selector(play)]) return inner;
-        } @catch (__unused NSException *e) {}
-    }
-    if ([tvkPlayer respondsToSelector:@selector(play)]) return tvkPlayer;
-    return nil;
-}
-
-static BOOL TVKPlayerIsPlaying(id player) {
-    if (!player) return NO;
-    if ([player respondsToSelector:@selector(isPlaying)]) {
-        return [player performSelector:@selector(isPlaying)];
-    }
-    return NO;
-}
-
-static void TVKNudgePlayerPlayback(id player) {
-    if (!player || TVKPlayerIsPlaying(player)) return;
-    SEL hideLoading = NSSelectorFromString(@"hideLoadingCoverViewIfNeed");
-    SEL stopLoading = NSSelectorFromString(@"stopLoading");
-    if ([player respondsToSelector:hideLoading]) {
-        ((void (*)(id, SEL))objc_msgSend)(player, hideLoading);
-    }
-    if ([player respondsToSelector:stopLoading]) {
-        ((void (*)(id, SEL))objc_msgSend)(player, stopLoading);
-    }
-    if ([player respondsToSelector:@selector(play)]) {
-        [player performSelector:@selector(play)];
-    }
-}
-
-static void TVKEnsureCareCellPlayback(id cell, id tvkPlayer, uint64_t epoch) {
-    if (epoch != gCarePlaybackEpoch) return;
-    if (![cell isKindOfClass:[UIView class]] || ![(UIView *)cell window]) return;
-
-    id player = TVKResolveMediaPlayer(tvkPlayer);
-    if (!player || TVKPlayerIsPlaying(player)) return;
-
-    TVKNudgePlayerPlayback(player);
 }
 
 %hook QNTVKPlayerReceiveImpl
 
 - (void)authErrorHandleWithErrorModel:(id)errorModel errorCode:(NSInteger)errorCode {
     if (errorCode == 10101001) {
-        TVKLog(@"authError 10101001，刷新鉴权后走原逻辑");
         TVKRefreshAuth();
     }
     %orig;
-}
-
-%end
-
-%hook QNCareNewDemandVideoCell
-
-- (void)checkAndHandleCachedPlayer:(id)cachedPlayer tvkPlayer:(id)tvkPlayer {
-    uint64_t epoch = ++gCarePlaybackEpoch;
-    %orig;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.18 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        TVKEnsureCareCellPlayback(self, tvkPlayer, epoch);
-    });
-}
-
-%end
-
-%hook QNCareLandscapeDemandCell
-
-- (void)checkAndHandleCachedPlayer:(id)cachedPlayer tvkPlayer:(id)tvkPlayer {
-    uint64_t epoch = ++gCarePlaybackEpoch;
-    %orig;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.18 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        TVKEnsureCareCellPlayback(self, tvkPlayer, epoch);
-    });
 }
 
 %end
@@ -627,7 +530,6 @@ static void TVKEnsureCareCellPlayback(id cell, id tvkPlayer, uint64_t epoch) {
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     BOOL ret = %orig;
     NSString *guid = TVKForgeGUID();
-    TVKLog(@"启动 GUID=%@ bundle=%@", guid, NSBundle.mainBundle.bundleIdentifier);
 
     Class beacon = NSClassFromString(@"TVKBeaconBaseInterface");
     if (beacon && [beacon respondsToSelector:@selector(setGUID:)]) {

@@ -1,0 +1,9 @@
+Package: repo.om2.cc.clarity.pro
+Name: ClarityProTweak
+Depends: mobilesubstrate
+Version: 1.1.0
+Architecture: iphoneos-arm64
+Description: 克拉壁纸 Pro 解锁与跳过开屏引导
+Maintainer: LuneWind
+Author: LuneWind
+Section: Tweaks
