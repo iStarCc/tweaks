@@ -72,6 +72,7 @@ typedef NS_ENUM(NSInteger, CARSettingKey) {
     CARSettingFeedsAd,
     CARSettingMineActivity,
     CARSettingLDRecommend,
+    CARSettingLDBanner,
     CARSettingIconRow,
     CARSettingHideExchange,
     CARSettingHideDiscover,
@@ -95,6 +96,7 @@ static NSString * const kSettingKeys[] = {
     [CARSettingFeedsAd]     = @"block_feeds_ad",
     [CARSettingMineActivity] = @"block_mine_activity",
     [CARSettingLDRecommend] = @"block_ld_recommend",
+    [CARSettingLDBanner]    = @"block_ld_banner",
     [CARSettingIconRow]     = @"block_icon_row",
     [CARSettingHideExchange] = @"hide_exchange",
     [CARSettingHideDiscover] = @"hide_discover",
@@ -113,6 +115,7 @@ static NSString * const kSettingTitles[] = {
     [CARSettingFeedsAd]     = @"Feeds 广告拦截",
     [CARSettingMineActivity] = @"我的页推广拦截",
     [CARSettingLDRecommend] = @"物流详情推荐拦截",
+    [CARSettingLDBanner]    = @"物流详情横幅拦截",
     [CARSettingIconRow]     = @"首页图标栏隐藏",
     [CARSettingHideExchange] = @"隐藏物换物",
     [CARSettingHideDiscover] = @"隐藏底栏发现",
@@ -131,6 +134,7 @@ static NSString * const kSettingSubtitles[] = {
     [CARSettingFeedsAd]     = @"信息流中的广告内容",
     [CARSettingMineActivity] = @"「我的」页「热门活动」卡片及「每日首次添加包裹有奖」横幅",
     [CARSettingLDRecommend] = @"物流详情页底部「猜你喜欢」推荐及子标签页",
+    [CARSettingLDBanner]    = @"物流详情页横幅广告及品牌弹窗广告",
     [CARSettingIconRow]     = @"取包裹/寄包裹等快捷入口及包裹分类标签头",
     [CARSettingHideExchange] = @"底栏「物换物」入口，剩余项自动等分",
     [CARSettingHideDiscover] = @"底栏「发现」入口，剩余项自动等分",
@@ -714,6 +718,34 @@ static CGFloat car_swizzled_heightForRow(id self, SEL _cmd, UITableView *tv, NSI
     if (![self hasChangedOffset]) {
         [scrollView setContentOffset:CGPointMake(0, offset)];
     }
+}
+
+%end
+
+// ============================================================
+// 6.2 物流详情页横幅广告拦截（CNLogisticsDetailNewBannerView）
+// ============================================================
+
+%hook CNLogisticsDetailBannerNewViewModel
+
+- (Class)viewClass {
+    return isSettingEnabled(CARSettingLDBanner) ? nil : %orig;
+}
+
+- (double)height {
+    return isSettingEnabled(CARSettingLDBanner) ? 0 : %orig;
+}
+
+%end
+
+%hook CNLogisticsDetailBrandAdViewModel
+
+- (Class)viewClass {
+    return isSettingEnabled(CARSettingLDBanner) ? nil : %orig;
+}
+
+- (double)height {
+    return isSettingEnabled(CARSettingLDBanner) ? 0 : %orig;
 }
 
 %end
