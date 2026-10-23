@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
+#import "poster_data.h"
 
 int __isOSVersionAtLeast(int major, int minor, int patch) {
     NSOperatingSystemVersion version = {major, minor, patch};
@@ -44,6 +45,17 @@ int __isOSVersionAtLeast(int major, int minor, int patch) {
 @interface CNBHomeViewController : UIViewController
 @end
 
+@interface CNLDControllerLifeCycleHandler : NSObject
+@end
+
+@interface CNNewLDTemplateContentView : UIView
+- (UIScrollView *)logisticsScrollView;
+- (BOOL)showMapView;
+- (BOOL)hasChangedOffset;
+- (double)logisticsScrollBestContentOffsetY;
+- (void)setLogisticsScrollBestContentOffsetY:(double)y;
+@end
+
 // ============================================================
 // 设置管理
 // ============================================================
@@ -59,6 +71,7 @@ typedef NS_ENUM(NSInteger, CARSettingKey) {
     CARSettingAdRequest,
     CARSettingFeedsAd,
     CARSettingMineActivity,
+    CARSettingLDRecommend,
     CARSettingIconRow,
     CARSettingHideExchange,
     CARSettingHideDiscover,
@@ -81,6 +94,7 @@ static NSString * const kSettingKeys[] = {
     [CARSettingAdRequest]   = @"block_ad_request",
     [CARSettingFeedsAd]     = @"block_feeds_ad",
     [CARSettingMineActivity] = @"block_mine_activity",
+    [CARSettingLDRecommend] = @"block_ld_recommend",
     [CARSettingIconRow]     = @"block_icon_row",
     [CARSettingHideExchange] = @"hide_exchange",
     [CARSettingHideDiscover] = @"hide_discover",
@@ -98,6 +112,7 @@ static NSString * const kSettingTitles[] = {
     [CARSettingAdRequest]   = @"广告请求拦截",
     [CARSettingFeedsAd]     = @"Feeds 广告拦截",
     [CARSettingMineActivity] = @"我的页推广拦截",
+    [CARSettingLDRecommend] = @"物流详情推荐拦截",
     [CARSettingIconRow]     = @"首页图标栏隐藏",
     [CARSettingHideExchange] = @"隐藏物换物",
     [CARSettingHideDiscover] = @"隐藏底栏发现",
@@ -115,6 +130,7 @@ static NSString * const kSettingSubtitles[] = {
     [CARSettingAdRequest]   = @"阻止广告网络请求",
     [CARSettingFeedsAd]     = @"信息流中的广告内容",
     [CARSettingMineActivity] = @"「我的」页「热门活动」卡片及「每日首次添加包裹有奖」横幅",
+    [CARSettingLDRecommend] = @"物流详情页底部「猜你喜欢」推荐及子标签页",
     [CARSettingIconRow]     = @"取包裹/寄包裹等快捷入口及包裹分类标签头",
     [CARSettingHideExchange] = @"底栏「物换物」入口，剩余项自动等分",
     [CARSettingHideDiscover] = @"底栏「发现」入口，剩余项自动等分",
@@ -161,14 +177,48 @@ static NSString *car_viewText(UIView *view) {
     [super viewDidLoad];
     self.title = @"菜鸟优化";
     self.tableView.separatorInset = UIEdgeInsetsMake(0, 16, 0, 0);
+    self.tableView.separatorColor = [UIColor colorWithWhite:0.85 alpha:1];
+    self.tableView.backgroundColor = [UIColor whiteColor];
+    self.tableView.contentInset = UIEdgeInsetsMake(-8, 0, 0, 0);
     self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeNever;
 
-    UILabel *footer = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 60)];
-    footer.text = @"CainiaoAdRemover · 切换设置后重启 App 生效";
-    footer.textAlignment = NSTextAlignmentCenter;
-    footer.font = [UIFont systemFontOfSize:12];
-    footer.textColor = [UIColor secondaryLabelColor];
-    self.tableView.tableFooterView = footer;
+    CGFloat screenWidth = [UIScreen mainScreen].bounds.size.width;
+    static NSData *sPosterData = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        sPosterData = [[NSData alloc] initWithBase64EncodedString:kCARPosterBase64 options:NSDataBase64DecodingIgnoreUnknownCharacters];
+    });
+    UIImage *posterImage = sPosterData ? [UIImage imageWithData:sPosterData] : nil;
+    if (posterImage) {
+        CGFloat aspectRatio = posterImage.size.height / posterImage.size.width;
+        CGFloat posterHeight = screenWidth * aspectRatio;
+        UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, screenWidth, posterHeight)];
+        header.backgroundColor = [UIColor whiteColor];
+        UIImageView *posterView = [[UIImageView alloc] initWithImage:posterImage];
+        posterView.frame = CGRectMake(0, 0, screenWidth, posterHeight);
+        posterView.contentMode = UIViewContentModeScaleAspectFill;
+        posterView.clipsToBounds = YES;
+        posterView.userInteractionEnabled = YES;
+        [posterView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(car_openRepo)]];
+        [header addSubview:posterView];
+        self.tableView.tableHeaderView = header;
+    }
+
+    static NSString * const kDisclaimer = @"免责声明：本插件仅供技术学习与研究，请于下载后 24 小时内删除。使用本插件造成的一切后果由用户自行承担，与开发者无关。切换设置后需重启 App 生效。";
+    UIView *footerContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, screenWidth, 36)];
+    footerContainer.clipsToBounds = YES;
+
+    UIFont *footerFont = [UIFont systemFontOfSize:11];
+    CGSize textSize = [kDisclaimer sizeWithAttributes:@{NSFontAttributeName: footerFont}];
+    CGFloat labelWidth = textSize.width + 60;
+
+    UILabel *scrollLabel = [[UILabel alloc] initWithFrame:CGRectMake(screenWidth, 10, labelWidth, 16)];
+    scrollLabel.text = kDisclaimer;
+    scrollLabel.font = footerFont;
+    scrollLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1];
+    scrollLabel.tag = 0x4D5152; // marquee tag
+    [footerContainer addSubview:scrollLabel];
+    self.tableView.tableFooterView = footerContainer;
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
@@ -190,6 +240,7 @@ static NSString *car_viewText(UIView *view) {
     cell.textLabel.text = kSettingTitles[key];
     cell.detailTextLabel.text = kSettingSubtitles[key];
     cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
+    cell.backgroundColor = [UIColor whiteColor];
 
     UISwitch *sw = [[UISwitch alloc] init];
     sw.on = isSettingEnabled(key);
@@ -200,8 +251,105 @@ static NSString *car_viewText(UIView *view) {
     return cell;
 }
 
-- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return kSectionTitles[section];
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    UIView *footer = self.tableView.tableFooterView;
+    UILabel *scrollLabel = [footer viewWithTag:0x4D5152];
+    if (!scrollLabel || scrollLabel.layer.animationKeys.count) return;
+
+    CGFloat screenW = footer.bounds.size.width;
+    CGFloat labelW = scrollLabel.bounds.size.width;
+    CGFloat duration = (screenW + labelW) / 50.0;
+
+    scrollLabel.frame = CGRectMake(screenW, scrollLabel.frame.origin.y, labelW, scrollLabel.frame.size.height);
+    CABasicAnimation *anim = [CABasicAnimation animationWithKeyPath:@"transform.translation.x"];
+    anim.fromValue = @0;
+    anim.toValue = @(-(screenW + labelW));
+    anim.duration = duration;
+    anim.repeatCount = HUGE_VALF;
+    anim.removedOnCompletion = NO;
+    [scrollLabel.layer addAnimation:anim forKey:@"marquee"];
+}
+
+static void car_addDashedBorder(UIView *view, CGFloat cornerRadius) {
+    static NSInteger kDashTag = 0x44415348;
+    UIView *borderView = [view viewWithTag:kDashTag];
+    if (!borderView) {
+        borderView = [[UIView alloc] init];
+        borderView.tag = kDashTag;
+        borderView.userInteractionEnabled = NO;
+        borderView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [view addSubview:borderView];
+    }
+    borderView.frame = view.bounds;
+
+    CAShapeLayer *dashLayer = nil;
+    for (CALayer *sub in borderView.layer.sublayers) {
+        if ([sub isKindOfClass:[CAShapeLayer class]]) { dashLayer = (CAShapeLayer *)sub; break; }
+    }
+    if (!dashLayer) {
+        dashLayer = [CAShapeLayer layer];
+        dashLayer.fillColor = nil;
+        dashLayer.strokeColor = [UIColor colorWithWhite:0.78 alpha:1].CGColor;
+        dashLayer.lineWidth = 1;
+        dashLayer.lineDashPattern = @[@5, @3];
+        [borderView.layer addSublayer:dashLayer];
+    }
+    dashLayer.path = [UIBezierPath bezierPathWithRoundedRect:borderView.bounds cornerRadius:cornerRadius].CGPath;
+    dashLayer.frame = borderView.bounds;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    static NSString * const kSectionIcons[] = {@"shield.slash.fill", @"eye.slash.fill", @"bolt.fill"};
+    static const CGFloat kHeaderHeight = 38;
+    static const CGFloat kIconSize = 16;
+    static const CGFloat kGap = 6;
+
+    CGFloat contentLeft = 20;
+
+    UIView *container = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, kHeaderHeight)];
+    container.backgroundColor = [UIColor whiteColor];
+
+    UIImageView *iconView = [[UIImageView alloc] initWithFrame:CGRectMake(contentLeft, (kHeaderHeight - kIconSize) / 2, kIconSize, kIconSize)];
+    iconView.contentMode = UIViewContentModeScaleAspectFit;
+    iconView.tintColor = [UIColor colorWithWhite:0.4 alpha:1];
+    if (@available(iOS 13.0, *)) {
+        iconView.image = [UIImage systemImageNamed:kSectionIcons[section] withConfiguration:
+            [UIImageSymbolConfiguration configurationWithPointSize:kIconSize weight:UIImageSymbolWeightMedium]];
+    }
+    [container addSubview:iconView];
+
+    CGFloat labelX = CGRectGetMaxX(iconView.frame) + kGap;
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(labelX, 0, tableView.bounds.size.width - labelX - 20, kHeaderHeight)];
+    label.text = kSectionTitles[section];
+    label.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    label.textColor = [UIColor colorWithWhite:0.4 alpha:1];
+    [container addSubview:label];
+    return container;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    return 38;
+}
+
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    NSInteger rows = [tableView numberOfRowsInSection:indexPath.section];
+    BOOL isFirst = indexPath.row == 0;
+    BOOL isLast = indexPath.row == rows - 1;
+
+    if (!isFirst && !isLast) return;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIView *sectionBg = nil;
+        for (UIView *sub in cell.superview.subviews) {
+            if (sub != cell && !sub.hidden && CGRectIntersectsRect(sub.frame, cell.frame)
+                && [NSStringFromClass([sub class]) containsString:@"Background"]) {
+                sectionBg = sub;
+                break;
+            }
+        }
+        if (sectionBg) car_addDashedBorder(sectionBg, 10);
+    });
 }
 
 - (void)switchChanged:(UISwitch *)sender {
@@ -526,6 +674,50 @@ static CGFloat car_swizzled_heightForRow(id self, SEL _cmd, UITableView *tv, NSI
 
 %end
 
+// ============================================================
+// 6.1 物流详情页底部推荐去除（CNLogisticsRecommendView 所在的 CNMVVMCardView）
+// ============================================================
+
+%hook CNLDControllerLifeCycleHandler
+
+- (id)addCustomViewModelsInEndByItem:(id)item frame:(CGRect)frame parentView:(id)parentView {
+    if (isSettingEnabled(CARSettingLDRecommend)) return @[];
+    return %orig;
+}
+
+%end
+
+%hook CNNewLDTemplateContentView
+
+- (void)updateData:(id)data {
+    %orig;
+    if (!isSettingEnabled(CARSettingLDRecommend) || ![self showMapView]) return;
+
+    UIScrollView *scrollView = [self logisticsScrollView];
+    if (!scrollView) return;
+
+    CGFloat scrollViewHeight = scrollView.frame.size.height;
+    CGFloat cardBottom = 0;
+    Class cardClass = NSClassFromString(@"CNMVVMCardView");
+    for (UIView *sub in scrollView.subviews) {
+        if ([sub isKindOfClass:cardClass]) {
+            cardBottom = CGRectGetMaxY(sub.frame);
+            break;
+        }
+    }
+    if (cardBottom <= 0) return;
+
+    static const CGFloat kBottomPadding = 20;
+    CGFloat offset = MAX(0, cardBottom + kBottomPadding - scrollViewHeight);
+    [self setLogisticsScrollBestContentOffsetY:offset];
+
+    if (![self hasChangedOffset]) {
+        [scrollView setContentOffset:CGPointMake(0, offset)];
+    }
+}
+
+%end
+
 // 隐藏包裹分类标签头，筛选条上移并保留顶部间距
 static void car_collapseAnchorHead(UIView *container, CGFloat selectTopGap) {
     UIView *head = nil, *select = nil;
@@ -692,14 +884,11 @@ static NSString * const kCARMineActivityScript =
 }
 %end
 
-// 切换到消息页时自动点击右上角「一键已读」：原生按钮直接触发控件事件，H5 页面通过 JS 点击同名元素
+// 切换到消息页时自动触发「一键已读」：通过 DynamicX 事件分发链模拟点击
+// DXRootView 通过 touchesBegan/touchesEnded 处理触摸，内部经过
+// dx_getFlattendNode → hitTest:eventID: → widget.postEvent: 完成事件分发
 static NSString * const kCARReadAllTitle = @"一键已读";
-static NSString * const kCARReadAllScript =
-    @"(function(){"
-    @"var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null),node;"
-    @"while((node=walker.nextNode())){"
-    @"if(node.nodeValue.trim()==='一键已读'){node.parentElement.click();return true;}}"
-    @"return false;})()";
+static const long long kDXTapEventID = 1848863463; // 0x6E33D367
 
 static UIView *car_findVisibleViewWithText(UIView *view, NSString *text) {
     if (view.hidden || view.alpha < 0.01) return nil;
@@ -711,36 +900,49 @@ static UIView *car_findVisibleViewWithText(UIView *view, NSString *text) {
     return nil;
 }
 
-static void car_collectWebViews(UIView *view, NSMutableArray<WKWebView *> *webViews) {
-    if (view.hidden) return;
-    if ([view isKindOfClass:[WKWebView class]]) [webViews addObject:(WKWebView *)view];
-    for (UIView *sub in view.subviews) car_collectWebViews(sub, webViews);
+static BOOL car_dispatchDXTapOnLabel(UIView *label) {
+    Class dxRootClass = NSClassFromString(@"DXRootView");
+    if (!dxRootClass) return NO;
+
+    UIView *dxRoot = label.superview;
+    while (dxRoot && ![dxRoot isKindOfClass:dxRootClass]) dxRoot = dxRoot.superview;
+    if (!dxRoot || !dxRoot.superview) return NO;
+
+    SEL flatSel = NSSelectorFromString(@"dx_getFlattendNode");
+    if (![dxRoot respondsToSelector:flatSel]) return NO;
+    typedef id (*MsgSendId)(id, SEL);
+    id flattenedNode = ((MsgSendId)objc_msgSend)(dxRoot, flatSel);
+    if (!flattenedNode) return NO;
+
+    CGPoint center = [label convertPoint:CGPointMake(CGRectGetMidX(label.bounds), CGRectGetMidY(label.bounds))
+                                  toView:dxRoot.superview];
+
+    SEL hitSel = NSSelectorFromString(@"hitTest:eventID:");
+    if (![flattenedNode respondsToSelector:hitSel]) return NO;
+    typedef id (*HitTestIMP)(id, SEL, CGPoint, long long);
+    id widget = ((HitTestIMP)objc_msgSend)(flattenedNode, hitSel, center, kDXTapEventID);
+    if (!widget) return NO;
+
+    Class dxEventClass = NSClassFromString(@"DXEvent");
+    SEL initSel = NSSelectorFromString(@"initWithEventId:");
+    if (!dxEventClass || ![dxEventClass instancesRespondToSelector:initSel]) return NO;
+    typedef id (*InitEventIMP)(id, SEL, long long);
+    id event = ((InitEventIMP)objc_msgSend)([dxEventClass alloc], initSel, kDXTapEventID);
+
+    typedef void (*MsgSendObj)(id, SEL, id);
+    ((MsgSendObj)objc_msgSend)(event, NSSelectorFromString(@"setWidget:"), widget);
+    ((MsgSendObj)objc_msgSend)(widget, NSSelectorFromString(@"postEvent:"), event);
+    return YES;
 }
 
 static void car_autoReadAllMessages(UIWindow *window, NSInteger retries) {
-    for (UIView *view = car_findVisibleViewWithText(window, kCARReadAllTitle); view; view = view.superview) {
-        if (![view isKindOfClass:[UIControl class]]) continue;
-        [(UIControl *)view sendActionsForControlEvents:UIControlEventTouchUpInside];
-        return;
-    }
+    UIView *label = car_findVisibleViewWithText(window, kCARReadAllTitle);
+    if (label && car_dispatchDXTapOnLabel(label)) return;
 
-    NSMutableArray<WKWebView *> *webViews = [NSMutableArray array];
-    car_collectWebViews(window, webViews);
-    __block BOOL clicked = NO;
-    dispatch_group_t group = dispatch_group_create();
-    for (WKWebView *webView in webViews) {
-        dispatch_group_enter(group);
-        [webView evaluateJavaScript:kCARReadAllScript completionHandler:^(id result, NSError *error) {
-            clicked = clicked || [result boolValue];
-            dispatch_group_leave(group);
-        }];
-    }
-    dispatch_group_notify(group, dispatch_get_main_queue(), ^{
-        if (clicked || retries <= 0) return;
-        __weak UIWindow *weakWindow = window;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            if (weakWindow) car_autoReadAllMessages(weakWindow, retries - 1);
-        });
+    if (retries <= 0) return;
+    __weak UIWindow *weakWindow = window;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (weakWindow) car_autoReadAllMessages(weakWindow, retries - 1);
     });
 }
 
@@ -878,10 +1080,15 @@ static const NSInteger kCARLongPressTag = 0x434152;
 
 %end
 
-@implementation CainiaoAdRemoverSettingsVC (Dismiss)
+@implementation CainiaoAdRemoverSettingsVC (Actions)
 
 - (void)car_dismiss {
     [self dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (void)car_openRepo {
+    [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://repo.om2.cc"]
+                                       options:@{} completionHandler:nil];
 }
 
 @end
