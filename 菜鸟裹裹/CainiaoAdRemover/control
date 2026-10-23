@@ -1,0 +1,9 @@
+Package: com.kcui.cainiaoadremover
+Name: CainiaoAdRemover
+Depends: mobilesubstrate
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: 菜鸟裹裹去广告插件 - 去除开屏广告、首页广告卡片和横幅广告
+Maintainer: kcui
+Author: kcui
+Section: Tweaks

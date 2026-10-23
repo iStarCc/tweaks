@@ -1,0 +1,9 @@
+Package: com.local.txdocsnosplashad
+Name: TXDocsNoSplashAd
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: 屏蔽腾讯文档 iOS 开屏广告（优量汇 GDT + 天枢 Tianshu）
+Maintainer: local
+Author: local
+Section: Tweaks
+Depends: mobilesubstrate (>= 0.9.5000)

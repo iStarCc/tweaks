@@ -7,3 +7,4 @@ ipa_extract/
 *.ipa
 .env
 .env.*
+*test*
